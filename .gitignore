@@ -1,0 +1,28 @@
+# Virtual environment
+.venv/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.ruff_cache/
+
+# Secrets — never commit
+.env
+
+# Personal resume data — gitignored to protect privacy
+data/master_resume.json
+data/job_description.txt
+
+# Intermediate agent artifacts
+workspace/*.json
+
+# Generated PDF outputs
+*.pdf
+
+# macOS
+.DS_Store
+
+# Editor
+.vscode/

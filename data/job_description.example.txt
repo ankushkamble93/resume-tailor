@@ -1,0 +1,17 @@
+Paste your target job description here.
+
+Example:
+---------
+We are looking for a Software Engineer to join our platform team. You will design
+and build reliable, scalable backend services that power our core product.
+
+What you'll do:
+- Design, build, and maintain high-throughput APIs and data pipelines in Python.
+- Collaborate cross-functionally with product, data, and infrastructure teams.
+- Own services end-to-end from design through production monitoring.
+
+What we're looking for:
+- 2+ years of backend engineering experience (Python preferred).
+- Strong SQL skills and experience with PostgreSQL or similar.
+- Familiarity with cloud platforms (AWS, GCP) and CI/CD workflows.
+- Ability to debug distributed systems and own reliability improvements.

@@ -1,0 +1,74 @@
+{
+  "contact": {
+    "name": "Jane Smith",
+    "location": "Toronto, CA",
+    "phone": "+1 416-000-0000",
+    "email": "jane.smith@email.com",
+    "linkedin": "https://www.linkedin.com/in/jane-smith/",
+    "github": "https://github.com/janesmith"
+  },
+  "summary": "Software Engineer with 4+ years of experience building scalable backend systems, data pipelines, and consumer-facing products. Passionate about bridging product strategy and engineering execution.",
+  "skills": [
+    {
+      "category": "Languages & Frameworks",
+      "skills": ["Python", "FastAPI", "Django", "React", "SQL", "TypeScript"]
+    },
+    {
+      "category": "Cloud & Platforms",
+      "skills": ["AWS", "PostgreSQL", "Redis", "Docker", "Supabase"]
+    },
+    {
+      "category": "DevOps & Infrastructure",
+      "skills": ["CI/CD", "GitHub Actions", "Terraform", "Kubernetes"]
+    },
+    {
+      "category": "Product & Methodology",
+      "skills": ["Product Roadmapping", "Agile/Scrum", "A/B Testing", "Data Analysis"]
+    }
+  ],
+  "experience": [
+    {
+      "company": "Acme Corp",
+      "role": "Software Engineer — Backend Platform",
+      "location": "Toronto",
+      "start_date": "Jan 2022",
+      "end_date": "Present",
+      "bullets": [
+        "Designed and shipped a high-throughput event-processing pipeline handling 50k events/sec using Python and Kafka, reducing downstream latency by 40%.",
+        "Partnered with product and data teams to define technical specifications and deliver three major platform features on schedule.",
+        "Built automated CI/CD pipelines with GitHub Actions cutting deployment time from 45 to 8 minutes.",
+        "Instrumented production services with Datadog dashboards and alerts, reducing mean time to detection by 60%."
+      ]
+    }
+  ],
+  "projects": [
+    {
+      "name": "OpenSearch Indexer",
+      "role": "Creator & Backend Engineer",
+      "status": "Present",
+      "bullets": [
+        "Built a Python-based async indexing service that syncs PostgreSQL records to OpenSearch in near real-time.",
+        "Implemented exponential back-off retry logic and dead-letter queues, achieving 99.9% indexing reliability.",
+        "Open-sourced with full test coverage and a Docker Compose dev environment for easy local setup."
+      ]
+    },
+    {
+      "name": "Budget Tracker CLI",
+      "role": "Solo Developer",
+      "status": "2023",
+      "bullets": [
+        "Developed a terminal-based personal finance tool using Typer and Rich with SQLite persistence.",
+        "Added CSV import, category tagging, and monthly summary reports with trend visualizations.",
+        "Packaged as a pip-installable tool with cross-platform support for macOS, Linux, and Windows."
+      ]
+    }
+  ],
+  "education": [
+    {
+      "degree": "B.Sc. Computer Science",
+      "institution": "University of Toronto",
+      "location": "Toronto",
+      "graduation_date": "May 2021"
+    }
+  ]
+}
