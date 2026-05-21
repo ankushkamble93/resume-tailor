@@ -77,8 +77,11 @@
 }
 
 // ── Helper: two-column entry header (title left, date right) ─────────────────
+// above: 0.25em — a controlled ~1mm gap that replaces Typst's implicit
+// par.spacing (~0.75em which was too loose). Gives intentional breathing room
+// without floating the title away from its section.
 #let entry-header(left-text, right-text) = {
-  block(width: 100%, below: 0.22em)[
+  block(width: 100%, above: 0.25em, below: 0.45em)[
     #left-text #h(1fr) #right-text
   ]
 }
@@ -128,7 +131,7 @@
 
 #section("Technical Skills")
 #for sg in r.skills [
-  #block(above: 0em, below: 0.38em)[
+  #block(above: 0.28em, below: 0.2em)[
     #text(weight: "bold")[#sg.category:] #sg.skills.join(", ")
   ]
 ]
@@ -159,7 +162,7 @@
     [#text(style: "italic")[#proj.status]],
   )
   list(..proj.bullets.map(b => [#b]))
-  v(0.26em)
+  v(0.38em)
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
