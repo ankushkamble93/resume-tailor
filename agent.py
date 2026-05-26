@@ -18,6 +18,7 @@ Pass 3 — Semantic Content Reduction  (LLM compaction loop)
 
 from __future__ import annotations
 
+import json
 import logging
 import subprocess
 from dataclasses import dataclass
@@ -26,7 +27,14 @@ from typing import List
 
 import pypdf
 
-from engine import compact_resume_content, tailor_resume_data
+from engine import (
+    build_proof_pack,
+    collect_diagnostics,
+    compact_resume_content,
+    evaluate_resume_quality,
+    refine_resume_for_quality,
+    tailor_resume_data,
+)
 from models import ResumeSchema
 
 logger = logging.getLogger(__name__)
@@ -161,6 +169,7 @@ def run_agent(
     output_path: Path,
     workspace: Path,
     max_semantic_passes: int = 8,
+    emit_diagnostics: bool = False,
 ) -> None:
     """
     Orchestrate the full 3-pass pipeline to produce a guaranteed 1-page PDF.
@@ -178,10 +187,25 @@ def run_agent(
     # ── PASS 1: Tailor content via LLM, compile, and check ───────────────────
     logger.info("")
     logger.info("━━━ PASS 1 — LLM Tailoring & Initial Compile ━━━━━━━━━━━━━━━━━━━━━━━━")
-    tailored = tailor_resume_data(master_data, keywords)
+    proof_pack = build_proof_pack(master_data, keywords)
+    tailored = tailor_resume_data(master_data, keywords, proof_pack=proof_pack)
+
+    quality = evaluate_resume_quality(tailored)
+    logger.info("  Quality gate: %s", "PASS" if quality.passed else "FAIL")
+    logger.info("  Quality metrics: %s", json.dumps(quality.to_dict(), ensure_ascii=False))
+
+    if not quality.passed:
+        logger.info("  Triggering one targeted refinement pass before compile.")
+        tailored = refine_resume_for_quality(tailored, keywords, proof_pack, quality)
+        quality = evaluate_resume_quality(tailored)
+        logger.info("  Quality metrics (after refinement): %s", json.dumps(quality.to_dict(), ensure_ascii=False))
 
     layout = LayoutParams()
     _write_json(tailored, workspace)
+
+    if emit_diagnostics:
+        diagnostics = collect_diagnostics(master_data, keywords, tailored, proof_pack=proof_pack)
+        logger.info("  Diagnostics: %s", json.dumps(diagnostics, ensure_ascii=False))
 
     logger.info("  Compiling PDF   [%s]", layout.describe())
     _compile_pdf(template_path, output_path, layout)
@@ -225,6 +249,11 @@ def run_agent(
             max_semantic_passes,
         )
         current_data = compact_resume_content(current_data)
+        quality = evaluate_resume_quality(current_data)
+        if not quality.passed:
+            logger.info("  Compaction output failed quality gate; refining before compile.")
+            current_data = refine_resume_for_quality(current_data, keywords, proof_pack, quality)
+
         _write_json(current_data, workspace)
 
         logger.info("  Recompiling with %s", layout.describe())

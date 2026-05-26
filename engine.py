@@ -11,14 +11,86 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 from pathlib import Path
-from typing import List
+from typing import Dict, List
 
 import instructor
 
 from models import JDKeywords, ResumeSchema
 
 logger = logging.getLogger(__name__)
+
+GENERIC_PHRASES = [
+    "leveraged",
+    "utilized",
+    "dynamic",
+    "cutting-edge",
+    "synergized",
+    "innovative solutions",
+    "results-driven",
+    "fast-paced environment",
+    "cross-functional teams",
+]
+
+INFRA_TEST_TERMS = {
+    "automation",
+    "framework",
+    "ci/cd",
+    "jenkins",
+    "github actions",
+    "pipeline",
+    "performance testing",
+    "regression",
+    "integration testing",
+    "rest api",
+    "diagnostics",
+    "root cause",
+}
+
+PRODUCT_COLLAB_TERMS = {
+    "product manager",
+    "product",
+    "stakeholder",
+    "roadmap",
+    "customer",
+    "feature delivery",
+    "user retention",
+    "collaborated",
+    "partnered",
+}
+
+
+class QualityReport:
+    """Deterministic quality report for anti-slop guardrails."""
+
+    def __init__(
+        self,
+        generic_phrase_score: float,
+        evidence_density: float,
+        infra_test_coverage: bool,
+        product_collab_coverage: bool,
+        failed_checks: List[str],
+    ) -> None:
+        self.generic_phrase_score = generic_phrase_score
+        self.evidence_density = evidence_density
+        self.infra_test_coverage = infra_test_coverage
+        self.product_collab_coverage = product_collab_coverage
+        self.failed_checks = failed_checks
+
+    @property
+    def passed(self) -> bool:
+        return not self.failed_checks
+
+    def to_dict(self) -> Dict[str, object]:
+        return {
+            "generic_phrase_score": round(self.generic_phrase_score, 3),
+            "evidence_density": round(self.evidence_density, 3),
+            "infra_test_coverage": self.infra_test_coverage,
+            "product_collab_coverage": self.product_collab_coverage,
+            "failed_checks": self.failed_checks,
+            "passed": self.passed,
+        }
 
 
 def _make_client() -> tuple[object, str]:
@@ -99,7 +171,131 @@ def analyze_job_description(jd_path: str) -> List[str]:
     return keywords
 
 
-def tailor_resume_data(master_data: ResumeSchema, keywords: List[str]) -> ResumeSchema:
+def _extract_bullet_anchors(bullet: str, keywords: List[str]) -> List[str]:
+    """
+    Extract deterministic evidence tokens from a bullet:
+    - metrics (numbers, percentages)
+    - tool/platform mentions from keywords
+    - technical tokens containing delimiters (e.g. CI/CD, Python/REST)
+    """
+    anchors: List[str] = []
+    lower = bullet.lower()
+
+    # Metrics and quantitative markers
+    for metric in re.findall(r"\b\d+(?:\.\d+)?%?\+?\b", bullet):
+        if metric not in anchors:
+            anchors.append(metric)
+
+    # Explicit technical patterns
+    tech_patterns = re.findall(
+        r"\b[A-Za-z][A-Za-z0-9]*(?:/[A-Za-z0-9]+)+\b|\b[A-Z]{2,}(?:/[A-Z]{2,})?\b",
+        bullet,
+    )
+    for token in tech_patterns:
+        if token not in anchors:
+            anchors.append(token)
+
+    # Keywords actually supported by source text
+    for kw in keywords:
+        if kw.lower() in lower and kw not in anchors:
+            anchors.append(kw)
+
+    return anchors
+
+
+def build_proof_pack(master_data: ResumeSchema, keywords: List[str]) -> Dict[str, List[str]]:
+    """
+    Build per-entry proof anchors to force specific, source-grounded rewrites.
+    """
+    proof_pack: Dict[str, List[str]] = {}
+
+    for i, exp in enumerate(master_data.experience, start=1):
+        key = f"experience_{i}:{exp.company}"
+        anchors: List[str] = []
+        for bullet in exp.bullets:
+            for anchor in _extract_bullet_anchors(bullet, keywords):
+                if anchor not in anchors:
+                    anchors.append(anchor)
+        proof_pack[key] = anchors[:10]
+
+    for i, proj in enumerate(master_data.projects, start=1):
+        key = f"project_{i}:{proj.name}"
+        anchors = []
+        for bullet in proj.bullets:
+            for anchor in _extract_bullet_anchors(bullet, keywords):
+                if anchor not in anchors:
+                    anchors.append(anchor)
+        proof_pack[key] = anchors[:10]
+
+    return proof_pack
+
+
+def _proof_pack_prompt_block(proof_pack: Dict[str, List[str]]) -> str:
+    lines = []
+    for entry, anchors in proof_pack.items():
+        joined = ", ".join(anchors) if anchors else "(no anchors extracted)"
+        lines.append(f"- {entry}: {joined}")
+    return "\n".join(lines)
+
+
+def evaluate_resume_quality(data: ResumeSchema) -> QualityReport:
+    """
+    Deterministic quality gate to reduce generic AI-style output.
+    """
+    bullets = []
+    for exp in data.experience:
+        bullets.extend(exp.bullets)
+    for proj in data.projects:
+        bullets.extend(proj.bullets)
+
+    joined_text = "\n".join(bullets).lower()
+    bullet_count = max(len(bullets), 1)
+
+    generic_hits = 0
+    for phrase in GENERIC_PHRASES:
+        generic_hits += joined_text.count(phrase)
+    generic_phrase_score = generic_hits / bullet_count
+
+    evidence_bullets = 0
+    for bullet in bullets:
+        has_metric = bool(re.search(r"\b\d+(?:\.\d+)?%?\+?\b", bullet))
+        has_tech = bool(
+            re.search(
+                r"\b[A-Za-z][A-Za-z0-9]*(?:/[A-Za-z0-9]+)+\b|\b(?:API|CI/CD|SQL|REST|OAuth|DAU|MAU)\b",
+                bullet,
+            )
+        )
+        if has_metric or has_tech:
+            evidence_bullets += 1
+    evidence_density = evidence_bullets / bullet_count
+
+    infra_test_coverage = any(term in joined_text for term in INFRA_TEST_TERMS)
+    product_collab_coverage = any(term in joined_text for term in PRODUCT_COLLAB_TERMS)
+
+    failed_checks: List[str] = []
+    if generic_phrase_score > 0.35:
+        failed_checks.append("generic_phrase_score_above_threshold")
+    if evidence_density < 0.70:
+        failed_checks.append("evidence_density_below_threshold")
+    if not infra_test_coverage:
+        failed_checks.append("missing_infra_test_signal")
+    if not product_collab_coverage:
+        failed_checks.append("missing_product_collaboration_signal")
+
+    return QualityReport(
+        generic_phrase_score=generic_phrase_score,
+        evidence_density=evidence_density,
+        infra_test_coverage=infra_test_coverage,
+        product_collab_coverage=product_collab_coverage,
+        failed_checks=failed_checks,
+    )
+
+
+def tailor_resume_data(
+    master_data: ResumeSchema,
+    keywords: List[str],
+    proof_pack: Dict[str, List[str]] | None = None,
+) -> ResumeSchema:
     """
     Feed master resume data + JD keywords to the LLM and receive a tailored
     ResumeSchema back.
@@ -111,6 +307,8 @@ def tailor_resume_data(master_data: ResumeSchema, keywords: List[str]) -> Resume
     client, model = _make_client()
 
     keywords_str = ", ".join(keywords)
+    proof_pack = proof_pack or build_proof_pack(master_data, keywords)
+    proof_pack_block = _proof_pack_prompt_block(proof_pack)
 
     # Strip contact from the LLM payload — restored via code after the call
     master_body = master_data.model_dump()
@@ -118,16 +316,20 @@ def tailor_resume_data(master_data: ResumeSchema, keywords: List[str]) -> Resume
     master_body_json = json.dumps(master_body, indent=2)
 
     system_msg = (
-        "You are an expert resume writer. Your one job is to rewrite resume bullets "
-        "so they surface specific target keywords. Returning a bullet that is word-for-word "
-        "identical to the input is strictly forbidden — every bullet you output must be "
-        "a genuine rewrite with different phrasing."
+        "You are an elite technical recruiter and resume strategist. "
+        "Write in a concrete, evidence-first style that sounds human and specific. "
+        "Avoid generic filler, AI-cadence repetition, and vague claims."
     )
 
     user_msg = (
         f"TARGET KEYWORDS: {keywords_str}\n\n"
+        "TARGET ROLE BLEND:\n"
+        "- Primary: test/infrastructure framework ownership and technical depth.\n"
+        "- Secondary: product engineering execution and collaboration with PM/stakeholders.\n\n"
         "MASTER RESUME BODY (do not invent any fact, tool, or metric not present here):\n"
         f"{master_body_json}\n\n"
+        "PROOF-PACK ANCHORS (must preserve these concrete anchors when relevant to each entry):\n"
+        f"{proof_pack_block}\n\n"
         "━━━ SKILLS LOCK (non-negotiable) ━━━\n"
         "Copy the skills array EXACTLY as given — same categories, same order, same items. "
         "Do NOT add, remove, rename, or reorder any skill. Skills are factual and must not "
@@ -140,6 +342,13 @@ def tailor_resume_data(master_data: ResumeSchema, keywords: List[str]) -> Resume
         "Rewrite every kept bullet. The output text must differ from the input text.\n"
         "Rephrase the action verb, reframe the outcome in terms of the target keywords, "
         "and inject keyword language where the underlying claim supports it.\n\n"
+        "Every bullet should include at least one concrete signal from source facts: "
+        "a metric, explicit tool/platform, API/integration detail, system boundary, "
+        "or failure/optimization context.\n\n"
+        "Sentence variation rule: do not start multiple bullets in a row with the same "
+        "verb pattern (e.g., avoid repetitive 'Built...', 'Built...', 'Built...').\n\n"
+        "Avoid these generic phrases unless literally necessary: leveraged, utilized, "
+        "dynamic, cutting-edge, synergized, innovative solutions.\n\n"
         "Concrete example:\n"
         "  INPUT:   'Analyzed production performance metrics to isolate bottlenecks and "
         "deploy high-priority hotfixes, protecting user retention.'\n"
@@ -152,6 +361,7 @@ def tailor_resume_data(master_data: ResumeSchema, keywords: List[str]) -> Resume
         "━━━ RULES ━━━\n"
         "- Preserve every number, %, and duration from the original exactly.\n"
         "- Do not invent tools, platforms, or metrics.\n"
+        "- Keep writing direct and specific; remove abstract filler.\n"
         "- Return a valid ResumeSchema. For the contact block supply a placeholder — "
         "it will be overwritten in code and does not matter."
     )
@@ -178,6 +388,60 @@ def tailor_resume_data(master_data: ResumeSchema, keywords: List[str]) -> Resume
 
     logger.info("  Tailoring complete.")
     return result
+
+
+def refine_resume_for_quality(
+    tailored_data: ResumeSchema,
+    keywords: List[str],
+    proof_pack: Dict[str, List[str]],
+    quality: QualityReport,
+) -> ResumeSchema:
+    """
+    One targeted refinement pass when deterministic quality checks fail.
+    """
+    logger.info("  Running targeted anti-slop refinement pass…")
+    client, model = _make_client()
+
+    failure_list = ", ".join(quality.failed_checks) if quality.failed_checks else "none"
+    prompt = (
+        "You will refine a tailored resume that failed quality checks for generic language.\n\n"
+        f"FAILED CHECKS: {failure_list}\n"
+        f"TARGET KEYWORDS: {', '.join(keywords)}\n\n"
+        "PROOF-PACK ANCHORS:\n"
+        f"{_proof_pack_prompt_block(proof_pack)}\n\n"
+        "TASK:\n"
+        "- Rewrite only the minimum number of bullets needed to pass checks.\n"
+        "- Increase concrete evidence density (metrics, tools, APIs, system details).\n"
+        "- Preserve role blend: infra/test ownership + product collaboration signal.\n"
+        "- Remove generic filler and repetitive AI phrasing.\n\n"
+        "HARD RULES:\n"
+        "- Keep all factual claims grounded in existing content.\n"
+        "- Preserve all numbers, percentages, and durations.\n"
+        "- Do not add new tools or achievements.\n"
+        "- Return complete valid ResumeSchema.\n\n"
+        f"CURRENT RESUME:\n{tailored_data.model_dump_json(indent=2)}"
+    )
+
+    kwargs: dict = dict(
+        messages=[{"role": "user", "content": prompt}],
+        response_model=ResumeSchema,
+    )
+
+    original_contact = tailored_data.contact.model_dump()
+
+    if "claude" in model:
+        kwargs["max_tokens"] = 4096
+        kwargs["model"] = model
+        result: ResumeSchema = client.messages.create(**kwargs)
+    else:
+        kwargs["model"] = model
+        result = client.chat.completions.create(**kwargs)
+
+    merged = result.model_dump()
+    merged["contact"] = original_contact
+    refined = ResumeSchema.model_validate(merged)
+    logger.info("  Quality refinement complete.")
+    return refined
 
 
 def compact_resume_content(data: ResumeSchema) -> ResumeSchema:
@@ -224,3 +488,21 @@ def compact_resume_content(data: ResumeSchema) -> ResumeSchema:
     merged = result.model_dump()
     merged["contact"] = original_contact
     return ResumeSchema.model_validate(merged)
+
+
+def collect_diagnostics(
+    master_data: ResumeSchema,
+    keywords: List[str],
+    tailored_data: ResumeSchema,
+    proof_pack: Dict[str, List[str]] | None = None,
+) -> Dict[str, object]:
+    """
+    Build lightweight diagnostics output for CLI visibility.
+    """
+    proof_pack = proof_pack or build_proof_pack(master_data, keywords)
+    quality = evaluate_resume_quality(tailored_data)
+    return {
+        "keywords": keywords,
+        "proof_pack": proof_pack,
+        "quality": quality.to_dict(),
+    }

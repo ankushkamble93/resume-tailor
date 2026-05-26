@@ -90,6 +90,11 @@ def run(
     verbose: bool = typer.Option(
         False, "--verbose", "-v", help="Enable DEBUG-level logging."
     ),
+    diagnostics: bool = typer.Option(
+        False,
+        "--diagnostics",
+        help="Emit keywords, proof-pack anchors, and quality metrics in logs.",
+    ),
 ) -> None:
     """Tailor a master resume to a job description and produce a 1-page PDF."""
 
@@ -133,6 +138,7 @@ def run(
             output_path=output,
             workspace=workspace,
             max_semantic_passes=max_semantic_passes,
+            emit_diagnostics=diagnostics,
         )
     except EnvironmentError as exc:
         logger.error("%s", exc)
