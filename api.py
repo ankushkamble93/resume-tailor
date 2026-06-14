@@ -11,7 +11,6 @@ Start with:
 from __future__ import annotations
 
 import logging
-import subprocess
 import tempfile
 import threading
 from pathlib import Path
@@ -25,7 +24,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from pydantic import BaseModel
 
-from agent import LayoutParams
+from agent import compile_to_one_page
 from engine import (
     analyze_job_description,
     build_proof_pack,
@@ -188,45 +187,31 @@ def tailor(body: TailorRequest) -> TailorResponse:
 @app.post("/api/download-pdf", tags=["resume"])
 def download_pdf(body: ResumeSchema) -> Response:
     """
-    Compile a ResumeSchema to a 1-page PDF using the Typst template and
-    return the raw PDF bytes for direct browser download.
+    Compile a ResumeSchema to a guaranteed 1-page PDF and return the bytes.
 
+    Runs the same Pass 2 (geometry tightening) and Pass 3 (semantic compaction)
+    loops as the CLI agent to ensure the output is exactly 1 page.
     Uses a threading lock so concurrent requests don't corrupt the shared
-    workspace/tailored_resume.json file that Typst reads.
+    workspace/tailored_resume.json that Typst reads.
     """
     if not TEMPLATE_PATH.exists():
         raise HTTPException(status_code=500, detail="template.typ not found — cannot compile PDF.")
 
     with _pdf_lock:
-        WORKSPACE_DIR.mkdir(parents=True, exist_ok=True)
-        json_path = WORKSPACE_DIR / "tailored_resume.json"
-        json_path.write_text(body.model_dump_json(indent=2), encoding="utf-8")
-        logger.info("Compiling PDF from tailored resume JSON…")
-
         with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp_pdf:
             pdf_path = Path(tmp_pdf.name)
 
         try:
-            layout = LayoutParams()
-            cmd = [
-                "typst", "compile",
-                str(TEMPLATE_PATH),
-                str(pdf_path),
-                "--input", f"font_size={layout.font_size}",
-                "--input", f"top_margin={layout.top_margin}",
-                "--input", f"bottom_margin={layout.bottom_margin}",
-                "--input", f"side_margin={layout.side_margin}",
-                "--input", f"line_spacing={layout.line_spacing}",
-            ]
-            proc = subprocess.run(cmd, capture_output=True, text=True)
-            if proc.returncode != 0:
-                raise HTTPException(
-                    status_code=500,
-                    detail=f"Typst compilation failed: {proc.stderr.strip()}",
-                )
+            logger.info("Starting 1-page PDF compilation…")
+            compile_to_one_page(
+                data=body,
+                template_path=TEMPLATE_PATH,
+                output_path=pdf_path,
+                workspace=WORKSPACE_DIR,
+            )
 
             pdf_bytes = pdf_path.read_bytes()
-            logger.info("PDF compiled successfully (%d bytes).", len(pdf_bytes))
+            logger.info("PDF ready (%d bytes).", len(pdf_bytes))
 
             # Save a copy to Desktop/resume for easy local access
             DESKTOP_RESUME_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -238,5 +223,10 @@ def download_pdf(body: ResumeSchema) -> Response:
                 media_type="application/pdf",
                 headers={"Content-Disposition": 'attachment; filename="tailored_resume.pdf"'},
             )
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.exception("PDF compilation failed")
+            raise HTTPException(status_code=500, detail=f"PDF compilation failed: {exc}") from exc
         finally:
             pdf_path.unlink(missing_ok=True)

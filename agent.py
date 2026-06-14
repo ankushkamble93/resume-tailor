@@ -160,6 +160,72 @@ def _page_count(pdf: Path) -> int:
     return len(pypdf.PdfReader(str(pdf)).pages)
 
 
+# ── Compile already-tailored content to 1 page ──────────────────────────────
+
+def compile_to_one_page(
+    data: ResumeSchema,
+    template_path: Path,
+    output_path: Path,
+    workspace: Path,
+    max_semantic_passes: int = 8,
+) -> ResumeSchema:
+    """
+    Take already-tailored resume data and compile it to a guaranteed 1-page PDF.
+
+    Skips Pass 1 (LLM tailoring) — call this when the content is already
+    tailored and you only need the geometry tightening and compaction loop.
+
+    Returns the (possibly compacted) ResumeSchema that produced the 1-page PDF.
+    """
+    _check_typst_installed()
+
+    layout = LayoutParams()
+    _write_json(data, workspace)
+
+    logger.info("Compiling PDF  [%s]", layout.describe())
+    _compile_pdf(template_path, output_path, layout)
+    pages = _page_count(output_path)
+    logger.info("Page count: %d", pages)
+
+    if pages == 1:
+        logger.info("✅  1 page on first compile.")
+        return data
+
+    # ── PASS 2: Geometry tightening (no LLM) ─────────────────────────────────
+    logger.info("━━━ PASS 2 — Geometry Tightening (%d page(s) → targeting 1)", pages)
+    step = 0
+    while True:
+        changed = layout.tighten_one_step()
+        if not changed:
+            logger.info("  Layout at minimum. Proceeding to Pass 3.")
+            break
+        step += 1
+        logger.info("  [step %2d]  %s", step, layout.describe())
+        _compile_pdf(template_path, output_path, layout)
+        pages = _page_count(output_path)
+        logger.info("            page count: %d", pages)
+        if pages == 1:
+            logger.info("✅  Pass 2 success.")
+            return data
+
+    # ── PASS 3: Semantic compaction (LLM loop) ────────────────────────────────
+    logger.info("━━━ PASS 3 — Semantic Compaction (still %d page(s))", pages)
+    current = data
+    for attempt in range(1, max_semantic_passes + 1):
+        logger.info("  [compaction %d/%d]", attempt, max_semantic_passes)
+        current = compact_resume_content(current)
+        _write_json(current, workspace)
+        _compile_pdf(template_path, output_path, layout)
+        pages = _page_count(output_path)
+        logger.info("  page count: %d", pages)
+        if pages == 1:
+            logger.info("✅  Pass 3 success.")
+            return current
+
+    logger.warning("⚠️  All passes exhausted. PDF has %d page(s).", pages)
+    return current
+
+
 # ── Main agent entry point ────────────────────────────────────────────────────
 
 def run_agent(
