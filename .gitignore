@@ -21,6 +21,11 @@ workspace/*.json
 # Generated PDF outputs
 *.pdf
 
+# Frontend build artifacts
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
 # macOS
 .DS_Store
 

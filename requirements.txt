@@ -17,3 +17,8 @@ rich>=13.0.0
 
 # Environment variable loading
 python-dotenv>=1.0.0
+
+# Web API layer
+fastapi>=0.111.0
+uvicorn[standard]>=0.29.0
+python-multipart>=0.0.9
