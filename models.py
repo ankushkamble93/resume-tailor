@@ -92,6 +92,9 @@ class JDKeywords(BaseModel):
     job_role_type: Literal["SDET", "SDE", "DevOps", "unknown"] = "unknown"
     """Inferred primary role category for this job description."""
 
+    company_name: str = "Company"
+    """Name of the hiring company as it appears in the job description."""
+
     @property
     def all_keywords(self) -> List[str]:
         seen: set[str] = set()

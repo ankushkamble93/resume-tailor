@@ -145,11 +145,13 @@ def analyze_job_description(jd_path: str) -> JDKeywords:
                     "Analyze the following job description and extract:\n"
                     "1. Technical skills — programming languages, frameworks, libraries.\n"
                     "2. Infrastructure keywords — cloud platforms, databases, CI/CD, DevOps tools.\n"
-                    "3. Core competencies — domain skills and behavioural traits the role emphasises.\n\n"
+                    "3. Core competencies — domain skills and behavioural traits the role emphasises.\n"
+                    "4. Company name — the name of the hiring company exactly as it appears.\n\n"
                     "Rules:\n"
                     "- Extract only terms explicitly present or strongly implied in the JD.\n"
                     "- Deduplicate across categories.\n"
-                    "- Use exact casing as found in the JD.\n\n"
+                    "- Use exact casing as found in the JD.\n"
+                    "- If the company name cannot be determined, use 'Company'.\n\n"
                     f"Job Description:\n{jd_text}"
                 ),
             }

@@ -52,6 +52,7 @@ export interface JDKeywords {
   infrastructure_keywords: string[];
   core_competencies: string[];
   job_role_type: "SDET" | "SDE" | "DevOps" | "unknown";
+  company_name: string;
 }
 
 // ── API shapes ────────────────────────────────────────────────────────────────
