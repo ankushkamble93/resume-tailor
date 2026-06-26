@@ -581,7 +581,7 @@ Return only the blurb — no labels, no JSON, no commentary."""
         raw_client = _OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
         resp = raw_client.chat.completions.create(
             model=model,
-            max_tokens=250,
+            max_completion_tokens=250,
             messages=[{"role": "user", "content": prompt}],
         )
         return resp.choices[0].message.content.strip()
