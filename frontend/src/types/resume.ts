@@ -65,6 +65,7 @@ export interface TailorRequest {
 export interface TailorResponse {
   tailored_resume: ResumeSchema;
   keywords: JDKeywords;
+  why_this_job: string;
 }
 
 export interface ApiError {

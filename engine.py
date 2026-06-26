@@ -493,6 +493,65 @@ def compact_resume_content(data: ResumeSchema) -> ResumeSchema:
     return ResumeSchema.model_validate(merged)
 
 
+def generate_why_this_job(
+    tailored_resume: ResumeSchema,
+    job_description: str,
+    keywords: List[str],
+) -> str:
+    """
+    Generate a 2-3 sentence "why this job" pitch for the candidate.
+
+    Deliberately lean: no cover letter, no formatting — just the targeted blurb.
+    Called as part of the main tailor pipeline so the result is immediately
+    available in the UI without a separate button-triggered LLM call.
+    """
+    logger.info("  Generating why_this_job blurb…")
+    client, model = _make_client()
+
+    contact = tailored_resume.contact
+    experience_summary = "\n".join(
+        f"- {e.role} at {e.company} ({e.start_date}–{e.end_date})"
+        for e in tailored_resume.experience
+    )
+    keywords_str = ", ".join(keywords[:15])
+
+    prompt = f"""You are helping {contact.name} articulate why a specific role appeals to them.
+
+Candidate experience:
+{experience_summary}
+
+Job description (excerpt):
+{job_description[:1500]}
+
+Relevant keywords: {keywords_str}
+
+Write a "WHY THIS JOB" blurb: exactly 2-3 sentences. Why does this specific role/company \
+appeal to this candidate? Be concrete and specific to the JD. No "I am excited to apply" \
+opener. No em dashes. No AI buzzwords (leverage, showcase, align with, pivotal, etc.). \
+Sound like a person, not a form letter.
+
+Return only the blurb text — no labels, no JSON, no commentary."""
+
+    if "claude" in model:
+        import anthropic as _anthropic
+        raw_client = _anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+        resp = raw_client.messages.create(
+            model=model,
+            max_tokens=200,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        return resp.content[0].text.strip()
+    else:
+        from openai import OpenAI as _OpenAI
+        raw_client = _OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        resp = raw_client.chat.completions.create(
+            model=model,
+            max_tokens=200,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        return resp.choices[0].message.content.strip()
+
+
 def generate_cover_letter(
     tailored_resume: ResumeSchema,
     job_description: str,

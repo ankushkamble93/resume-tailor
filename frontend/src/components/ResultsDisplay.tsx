@@ -74,7 +74,7 @@ function Bullet({ text }: { text: string }) {
 // ── Main component ────────────────────────────────────────────────────────────
 
 export function ResultsDisplay({ result, jobDescription }: Props) {
-  const { tailored_resume: r, keywords } = result;
+  const { tailored_resume: r, keywords, why_this_job } = result;
   const [pdfLoading, setPdfLoading] = useState(false);
   const [pdfError, setPdfError] = useState<string | null>(null);
   const [coverLetter, setCoverLetter] = useState<CoverLetterResponse | null>(null);
@@ -83,8 +83,6 @@ export function ResultsDisplay({ result, jobDescription }: Props) {
   const [clPdfLoading, setClPdfLoading] = useState(false);
   const [clPdfError, setClPdfError] = useState<string | null>(null);
   const [showWhyThis, setShowWhyThis] = useState(false);
-  const [whyThisLoading, setWhyThisLoading] = useState(false);
-  const [whyThisError, setWhyThisError] = useState<string | null>(null);
 
   const allKeywords = [
     ...keywords.technical_skills,
@@ -136,18 +134,7 @@ export function ResultsDisplay({ result, jobDescription }: Props) {
     }
   };
 
-  const handleWhyThisPosition = async () => {
-    setWhyThisError(null);
-    if (coverLetter) {
-      setShowWhyThis((v) => !v);
-      return;
-    }
-    setWhyThisLoading(true);
-    const cl = await ensureCoverLetter();
-    setWhyThisLoading(false);
-    if (cl) setShowWhyThis(true);
-    else setWhyThisError("Could not load Why This Position.");
-  };
+  const handleWhyThisPosition = () => setShowWhyThis((v) => !v);
 
   const handleDownloadJson = () => {
     const blob = new Blob(
@@ -268,53 +255,39 @@ export function ResultsDisplay({ result, jobDescription }: Props) {
                 </>
               )}
             </button>
-            <button
-              onClick={handleWhyThisPosition}
-              disabled={whyThisLoading || clLoading}
-              className={[
-                "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors",
-                whyThisLoading || clLoading
-                  ? "cursor-not-allowed bg-slate-200 text-slate-400"
-                  : showWhyThis
-                  ? "bg-indigo-100 text-indigo-700 border border-indigo-300 hover:bg-indigo-200"
-                  : "border border-indigo-200 bg-white text-indigo-600 hover:border-indigo-400 hover:bg-indigo-50",
-              ].join(" ")}
-            >
-              {whyThisLoading || clLoading ? (
-                <>
-                  <svg className="h-3.5 w-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                  </svg>
-                  Loading…
-                </>
-              ) : (
-                <>
-                  <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 5.25h.008v.008H12v-.008Z" />
-                  </svg>
-                  Why This Position
-                </>
-              )}
-            </button>
+            {why_this_job && (
+              <button
+                onClick={handleWhyThisPosition}
+                className={[
+                  "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors",
+                  showWhyThis
+                    ? "bg-indigo-100 text-indigo-700 border border-indigo-300 hover:bg-indigo-200"
+                    : "border border-indigo-200 bg-white text-indigo-600 hover:border-indigo-400 hover:bg-indigo-50",
+                ].join(" ")}
+              >
+                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 5.25h.008v.008H12v-.008Z" />
+                </svg>
+                Why This Position
+              </button>
+            )}
           </div>
         </div>
 
         {/* Why this position — shown only when button has been toggled on */}
-        {showWhyThis && coverLetter && (
+        {showWhyThis && why_this_job && (
           <div className="rounded-lg border border-indigo-200 bg-indigo-50 px-4 py-3">
             <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-indigo-500">Why this position</p>
-            <p className="text-sm leading-relaxed text-indigo-900">{coverLetter.why_this_job}</p>
+            <p className="text-sm leading-relaxed text-indigo-900">{why_this_job}</p>
           </div>
         )}
 
         {/* Inline error messages */}
-        {(pdfError || clError || clPdfError || whyThisError) && (
+        {(pdfError || clError || clPdfError) && (
           <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-xs text-red-700 space-y-0.5">
             {pdfError && <p><span className="font-semibold">Resume PDF: </span>{pdfError}</p>}
             {clError && <p><span className="font-semibold">Cover letter: </span>{clError}</p>}
             {clPdfError && <p><span className="font-semibold">Cover letter PDF: </span>{clPdfError}</p>}
-            {whyThisError && <p><span className="font-semibold">Why This Position: </span>{whyThisError}</p>}
           </div>
         )}
       </div>
