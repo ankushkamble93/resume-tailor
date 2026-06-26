@@ -94,7 +94,6 @@ export function ResultsDisplay({ result, jobDescription }: Props) {
 
   const safeName = (s: string) => s.replace(/[^a-zA-Z0-9]/g, "_").replace(/_+/g, "_");
   const candidateName = safeName(r.contact.name);
-  const companyName = safeName(keywords.company_name || "Company");
 
   const ensureCoverLetter = async (): Promise<CoverLetterResponse | null> => {
     if (coverLetter) return coverLetter;
@@ -127,7 +126,7 @@ export function ResultsDisplay({ result, jobDescription }: Props) {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `${candidateName}_Cover_Letter_${companyName}.pdf`;
+      a.download = `${candidateName}_Cover_Letter_2026.pdf`;
       a.click();
       URL.revokeObjectURL(url);
     } catch (err) {
