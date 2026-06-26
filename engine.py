@@ -17,7 +17,7 @@ from typing import Dict, List
 
 import instructor
 
-from models import JDKeywords, ResumeSchema
+from models import JDKeywords, ResumeSchema, TailoredOutput
 
 logger = logging.getLogger(__name__)
 
@@ -390,6 +390,131 @@ def tailor_resume_data(
 
     logger.info("  Tailoring complete.")
     return result
+
+
+def tailor_resume_data_with_why(
+    master_data: ResumeSchema,
+    keywords: List[str],
+    job_description: str,
+    proof_pack: Dict[str, List[str]] | None = None,
+    job_role_type: str | None = None,
+) -> tuple[ResumeSchema, str]:
+    """
+    Single-call variant of tailor_resume_data that also produces a why_this_job
+    blurb in the same instructor-structured response.
+
+    Returns (tailored_resume, why_this_job) so the caller needs zero additional
+    LLM calls to populate both the resume and the Why This Position blurb.
+    Uses TailoredOutput as the response_model so instructor enforces both fields
+    via structured output — no raw chat completion, no None-content risk.
+    """
+    logger.info("  Sending master data to LLM for tailoring + why_this_job…")
+    client, model = _make_client()
+
+    keywords_str = ", ".join(keywords)
+    proof_pack = proof_pack or build_proof_pack(master_data, keywords)
+    proof_pack_block = _proof_pack_prompt_block(proof_pack)
+
+    master_body = master_data.model_dump()
+    del master_body["contact"]
+    master_body_json = json.dumps(master_body, indent=2)
+
+    system_msg = (
+        "You are an elite technical recruiter and resume strategist. "
+        "Write in a concrete, evidence-first style that sounds human and specific. "
+        "Avoid generic filler, AI-cadence repetition, and vague claims."
+    )
+
+    why_rules = (
+        "\n\n━━━ STEP 4 — WHY THIS JOB (why_this_job field) ━━━\n"
+        "Write a 2-3 sentence personal blurb in first person: why does this specific "
+        "role appeal to this candidate based on the job description below?\n"
+        f"JOB DESCRIPTION EXCERPT:\n{job_description[:1500]}\n\n"
+        "HARD RULES for why_this_job:\n"
+        "- 2-3 sentences maximum. No more.\n"
+        "- First person (I built, I shipped — not 'the candidate').\n"
+        "- Be specific: name the company or tech or something concrete from the JD.\n"
+        "- NO banned openers: no 'I am excited', 'I look forward to', 'thrilled', 'honored'.\n"
+        "- NO em dashes. NO 'not only...but also'. NO rule of three adjectives.\n"
+        "- NO AI vocabulary: leverage, showcase, pivotal, testament, fostering, "
+        "align with, underscore, cutting-edge, vibrant, tapestry, synergize.\n"
+        "- NO present-participle add-ons: no sentences ending in 'ensuring...', "
+        "'highlighting...', 'reflecting...', 'contributing to...'.\n"
+        "- NO copula substitutes: use 'is/are/has', not 'serves as' or 'stands as'.\n"
+        "- Vary sentence length — mix one short punchy sentence with a longer one.\n"
+        "- Sound like a person who genuinely thought about this job, not a form letter."
+    )
+
+    user_msg = (
+        f"TARGET KEYWORDS: {keywords_str}\n\n"
+        "TARGET ROLE BLEND:\n"
+        "- Primary: test/infrastructure framework ownership and technical depth.\n"
+        "- Secondary: product engineering execution and collaboration with PM/stakeholders.\n\n"
+        "MASTER RESUME BODY (do not invent any fact, tool, or metric not present here):\n"
+        f"{master_body_json}\n\n"
+        "PROOF-PACK ANCHORS (must preserve these concrete anchors when relevant to each entry):\n"
+        f"{proof_pack_block}\n\n"
+        "━━━ SKILLS LOCK (non-negotiable) ━━━\n"
+        "Copy the skills array EXACTLY as given — same categories, same order, same items. "
+        "Do NOT add, remove, rename, or reorder any skill. Skills are factual and must not "
+        "be inferred or expanded from the JD.\n\n"
+        "━━━ STEP 1 — BULLET SELECTION ━━━\n"
+        "For each experience entry keep the 3–4 bullets that map most naturally to the "
+        "target keywords. Drop the rest.\n"
+        "For each project keep the 3 most relevant bullets.\n\n"
+        "━━━ STEP 2 — BULLET REWRITING (mandatory) ━━━\n"
+        "Rewrite every kept bullet. The output text must differ from the input text.\n"
+        "Rephrase the action verb, reframe the outcome in terms of the target keywords, "
+        "and inject keyword language where the underlying claim supports it.\n\n"
+        "Every bullet should include at least one concrete signal from source facts: "
+        "a metric, explicit tool/platform, API/integration detail, system boundary, "
+        "or failure/optimization context.\n\n"
+        "Sentence variation rule: do not start multiple bullets in a row with the same "
+        "verb pattern (e.g., avoid repetitive 'Built...', 'Built...', 'Built...').\n\n"
+        "Avoid these generic phrases unless literally necessary: leveraged, utilized, "
+        "dynamic, cutting-edge, synergized, innovative solutions.\n\n"
+        "Concrete example:\n"
+        "  INPUT:   'Analyzed production performance metrics to isolate bottlenecks and "
+        "deploy high-priority hotfixes, protecting user retention.'\n"
+        "  OUTPUT:  'Queried production data pipelines via SQL to surface anomalous "
+        "performance patterns; applied quantitative analysis to isolate root causes and "
+        "deploy targeted hotfixes protecting user retention.'\n\n"
+        "━━━ STEP 3 — SUMMARY ━━━\n"
+        "Write a 2-sentence summary that leads with the skills most relevant to the "
+        "target keywords. Do not copy the original summary.\n\n"
+        "━━━ RULES ━━━\n"
+        "- Preserve every number, %, and duration from the original exactly.\n"
+        "- Do not invent tools, platforms, or metrics.\n"
+        "- Keep writing direct and specific; remove abstract filler.\n"
+        "- Return a valid TailoredOutput. For the contact block supply a placeholder — "
+        "it will be overwritten in code and does not matter."
+        + why_rules
+    )
+
+    messages = [{"role": "user", "content": user_msg}]
+    kwargs: dict = dict(response_model=TailoredOutput)
+
+    if "claude" in model:
+        kwargs["model"] = model
+        kwargs["max_tokens"] = 4096
+        kwargs["system"] = system_msg
+        kwargs["messages"] = messages
+        result: TailoredOutput = client.messages.create(**kwargs)
+    else:
+        kwargs["model"] = model
+        kwargs["messages"] = [{"role": "system", "content": system_msg}] + messages
+        result = client.chat.completions.create(**kwargs)
+
+    why = (result.why_this_job or "").strip()
+
+    # Restore real contact info
+    merged = result.model_dump()
+    merged["contact"] = master_data.contact.model_dump()
+    merged.pop("why_this_job", None)
+    resume = ResumeSchema.model_validate(merged)
+
+    logger.info("  Tailoring + why_this_job complete (why: %d chars).", len(why))
+    return resume, why
 
 
 def refine_resume_for_quality(

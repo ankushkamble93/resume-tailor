@@ -33,9 +33,9 @@ from engine import (
     build_proof_pack,
     evaluate_resume_quality,
     generate_cover_letter,
-    generate_why_this_job,
     refine_resume_for_quality,
     tailor_resume_data,
+    tailor_resume_data_with_why,
 )
 from models import JDKeywords, ResumeSchema
 
@@ -179,12 +179,13 @@ def tailor(body: TailorRequest) -> TailorResponse:
             logger.exception("Proof-pack build failed")
             raise HTTPException(status_code=500, detail=f"Proof-pack build failed: {exc}") from exc
 
-        # ── Step 3: Tailor resume content via LLM ────────────────────────────
+        # ── Step 3: Tailor resume + why_this_job in a single LLM call ──────────
         logger.info("Tailoring resume…")
         try:
-            tailored = tailor_resume_data(
+            tailored, why = tailor_resume_data_with_why(
                 body.master_resume,
                 keywords,
+                job_description=body.job_description,
                 proof_pack=proof_pack,
                 job_role_type=job_role_type,
             )
@@ -205,19 +206,6 @@ def tailor(body: TailorRequest) -> TailorResponse:
                 raise HTTPException(status_code=500, detail=f"Quality refinement failed: {exc}") from exc
 
         logger.info("Tailoring complete.")
-
-        # Generate "why this job" blurb in the same request so it's
-        # immediately available in the UI — no extra button-triggered LLM call.
-        try:
-            why = generate_why_this_job(
-                tailored_resume=tailored,
-                job_description=body.job_description,
-                keywords=jd_result.all_keywords,
-            )
-        except Exception as exc:
-            logger.warning("why_this_job generation failed (non-fatal): %s", exc)
-            why = ""
-
         return TailorResponse(tailored_resume=tailored, keywords=jd_result, why_this_job=why)
 
 
