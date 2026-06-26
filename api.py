@@ -10,7 +10,10 @@ Start with:
 
 from __future__ import annotations
 
+import datetime
+import json
 import logging
+import re
 import tempfile
 import threading
 from pathlib import Path
@@ -45,8 +48,10 @@ logger = logging.getLogger(__name__)
 PROJECT_ROOT = Path(__file__).parent
 MASTER_RESUME_PATH = PROJECT_ROOT / "data" / "master_resume.json"
 TEMPLATE_PATH = PROJECT_ROOT / "template.typ"
+COVER_LETTER_TEMPLATE_PATH = PROJECT_ROOT / "cover_letter.typ"
 WORKSPACE_DIR = PROJECT_ROOT / "workspace"
 DESKTOP_RESUME_PATH = Path.home() / "Desktop" / "resume" / "Ankush_Kamble_Resume_2026.pdf"
+SIGNATURE_PATH = PROJECT_ROOT / "signature.png"
 
 # Serialise PDF compilation so concurrent requests don't clobber workspace/
 _pdf_lock = threading.Lock()
@@ -93,6 +98,11 @@ class CoverLetterRequest(BaseModel):
 
 class CoverLetterResponse(BaseModel):
     why_this_job: str
+    cover_letter: str
+
+
+class CoverLetterPdfRequest(BaseModel):
+    tailored_resume: ResumeSchema
     cover_letter: str
 
 
@@ -240,6 +250,116 @@ def download_pdf(body: ResumeSchema) -> Response:
         except Exception as exc:
             logger.exception("PDF compilation failed")
             raise HTTPException(status_code=500, detail=f"PDF compilation failed: {exc}") from exc
+        finally:
+            pdf_path.unlink(missing_ok=True)
+
+
+def _parse_cover_letter_text(text: str, name: str) -> dict:
+    """
+    Parse a free-form cover letter string into the structured dict expected
+    by cover_letter.typ:  greeting / paragraphs / closing.
+    """
+    text = text.replace("\r\n", "\n").strip()
+    blocks = [b.strip() for b in re.split(r"\n{2,}", text) if b.strip()]
+
+    greeting = "Dear Hiring Manager,"
+    closing = "Sincerely,"
+    paragraphs: list[str] = []
+
+    if not blocks:
+        paragraphs = [text]
+    elif len(blocks) == 1:
+        paragraphs = blocks
+    else:
+        start = 0
+        end = len(blocks)
+
+        if blocks[0].lower().startswith("dear"):
+            greeting = blocks[0]
+            start = 1
+
+        # Strip trailing name block if it matches the candidate name
+        if blocks[end - 1].strip().lower() == name.strip().lower():
+            end -= 1
+
+        # Strip closing line (short, ends with comma, e.g. "Sincerely,")
+        if end > start and len(blocks[end - 1]) < 40 and blocks[end - 1].endswith(","):
+            closing = blocks[end - 1]
+            end -= 1
+
+        paragraphs = blocks[start:end] or [text]
+
+    return {
+        "greeting": greeting,
+        "paragraphs": paragraphs,
+        "closing": closing,
+    }
+
+
+@app.post("/api/download-cover-letter-pdf", tags=["resume"])
+def download_cover_letter_pdf(body: CoverLetterPdfRequest) -> Response:
+    """
+    Compile a cover letter to PDF using cover_letter.typ and return the bytes.
+    Parses the plain-text cover letter into the structured format the Typst
+    template expects (greeting / paragraphs[] / closing).
+    """
+    if not COVER_LETTER_TEMPLATE_PATH.exists():
+        raise HTTPException(status_code=500, detail="cover_letter.typ not found — cannot compile PDF.")
+
+    contact = body.tailored_resume.contact
+    parsed = _parse_cover_letter_text(body.cover_letter, contact.name)
+
+    cover_letter_data = {
+        "name": contact.name,
+        "location": contact.location or "",
+        "phone": contact.phone or "",
+        "email": contact.email or "",
+        "linkedin": contact.linkedin or "",
+        "github": contact.github or "",
+        "date": datetime.date.today().strftime("%B %d, %Y"),
+        **parsed,
+    }
+
+    with _pdf_lock:
+        cover_letter_json_path = WORKSPACE_DIR / "cover_letter_data.json"
+        WORKSPACE_DIR.mkdir(parents=True, exist_ok=True)
+        cover_letter_json_path.write_text(
+            json.dumps(cover_letter_data, indent=2), encoding="utf-8"
+        )
+
+        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp_pdf:
+            pdf_path = Path(tmp_pdf.name)
+
+        try:
+            logger.info("Compiling cover letter PDF…")
+            has_sig = "1" if SIGNATURE_PATH.exists() else "0"
+            import subprocess
+            cmd = [
+                "typst", "compile",
+                str(COVER_LETTER_TEMPLATE_PATH),
+                str(pdf_path),
+                "--root", str(PROJECT_ROOT),
+                "--input", f"has_sig={has_sig}",
+            ]
+            proc = subprocess.run(cmd, capture_output=True, text=True)
+            if proc.returncode != 0:
+                raise RuntimeError(
+                    f"typst compile failed (exit {proc.returncode}):\n{proc.stderr.strip()}"
+                )
+
+            pdf_bytes = pdf_path.read_bytes()
+            logger.info("Cover letter PDF ready (%d bytes).", len(pdf_bytes))
+
+            return Response(
+                content=pdf_bytes,
+                media_type="application/pdf",
+                headers={"Content-Disposition": 'attachment; filename="cover_letter.pdf"'},
+            )
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.exception("Cover letter PDF compilation failed")
+            raise HTTPException(status_code=500, detail=f"Cover letter PDF compilation failed: {exc}") from exc
         finally:
             pdf_path.unlink(missing_ok=True)
 
