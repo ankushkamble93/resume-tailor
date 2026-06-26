@@ -35,6 +35,7 @@ from engine import (
     generate_cover_letter,
     refine_resume_for_quality,
     tailor_resume_data,
+    tailor_resume_data_with_why,
 )
 from models import JDKeywords, ResumeSchema
 
@@ -88,6 +89,7 @@ class TailorRequest(BaseModel):
 class TailorResponse(BaseModel):
     tailored_resume: ResumeSchema
     keywords: JDKeywords
+    why_this_job: str = ""
 
 
 class CoverLetterRequest(BaseModel):
@@ -177,12 +179,13 @@ def tailor(body: TailorRequest) -> TailorResponse:
             logger.exception("Proof-pack build failed")
             raise HTTPException(status_code=500, detail=f"Proof-pack build failed: {exc}") from exc
 
-        # ── Step 3: Tailor resume content via LLM ────────────────────────────
+        # ── Step 3: Tailor resume + why_this_job in a single LLM call ──────────
         logger.info("Tailoring resume…")
         try:
-            tailored = tailor_resume_data(
+            tailored, why = tailor_resume_data_with_why(
                 body.master_resume,
                 keywords,
+                job_description=body.job_description,
                 proof_pack=proof_pack,
                 job_role_type=job_role_type,
             )
@@ -203,7 +206,7 @@ def tailor(body: TailorRequest) -> TailorResponse:
                 raise HTTPException(status_code=500, detail=f"Quality refinement failed: {exc}") from exc
 
         logger.info("Tailoring complete.")
-        return TailorResponse(tailored_resume=tailored, keywords=jd_result)
+        return TailorResponse(tailored_resume=tailored, keywords=jd_result, why_this_job=why)
 
 
 @app.post("/api/download-pdf", tags=["resume"])

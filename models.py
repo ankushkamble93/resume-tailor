@@ -75,6 +75,32 @@ class ResumeSchema(BaseModel):
     education: List[Education]
 
 
+class TailoredOutput(BaseModel):
+    """
+    Instructor response model for the combined tailoring + why_this_job call.
+    Identical fields to ResumeSchema plus why_this_job so both are returned
+    in a single structured LLM response.
+    """
+    contact: ContactInfo
+    summary: str
+    skills: List[SkillGroup]
+    experience: List[WorkExperience]
+    projects: List[Project]
+    education: List[Education]
+    why_this_job: str = ""
+    """2-3 sentence blurb: why this specific role appeals to the candidate."""
+
+    def to_resume_schema(self) -> "ResumeSchema":
+        return ResumeSchema(
+            contact=self.contact,
+            summary=self.summary,
+            skills=self.skills,
+            experience=self.experience,
+            projects=self.projects,
+            education=self.education,
+        )
+
+
 # ── Intermediate schemas used by the LLM engine ────────────────────────────
 
 class JDKeywords(BaseModel):
