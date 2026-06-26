@@ -29,6 +29,7 @@ from engine import (
     analyze_job_description,
     build_proof_pack,
     evaluate_resume_quality,
+    generate_cover_letter,
     refine_resume_for_quality,
     tailor_resume_data,
 )
@@ -82,6 +83,17 @@ class TailorRequest(BaseModel):
 class TailorResponse(BaseModel):
     tailored_resume: ResumeSchema
     keywords: JDKeywords
+
+
+class CoverLetterRequest(BaseModel):
+    tailored_resume: ResumeSchema
+    job_description: str
+    keywords: list[str]
+
+
+class CoverLetterResponse(BaseModel):
+    why_this_job: str
+    cover_letter: str
 
 
 class HealthResponse(BaseModel):
@@ -230,3 +242,28 @@ def download_pdf(body: ResumeSchema) -> Response:
             raise HTTPException(status_code=500, detail=f"PDF compilation failed: {exc}") from exc
         finally:
             pdf_path.unlink(missing_ok=True)
+
+
+@app.post("/api/cover-letter", response_model=CoverLetterResponse, tags=["resume"])
+def cover_letter(body: CoverLetterRequest) -> CoverLetterResponse:
+    """
+    Generate a "why this job" blurb and a full cover letter for the tailored resume.
+
+    Uses the humanizer-informed prompt in engine.py to minimise AI slop patterns.
+    Runs in a thread-pool worker so the async event loop stays unblocked.
+    """
+    logger.info("Generating cover letter…")
+    try:
+        result = generate_cover_letter(
+            tailored_resume=body.tailored_resume,
+            job_description=body.job_description,
+            keywords=body.keywords,
+        )
+    except Exception as exc:
+        logger.exception("Cover letter generation failed")
+        raise HTTPException(status_code=500, detail=f"Cover letter generation failed: {exc}") from exc
+
+    return CoverLetterResponse(
+        why_this_job=result["why_this_job"],
+        cover_letter=result["cover_letter"],
+    )

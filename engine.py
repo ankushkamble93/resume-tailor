@@ -491,6 +491,119 @@ def compact_resume_content(data: ResumeSchema) -> ResumeSchema:
     return ResumeSchema.model_validate(merged)
 
 
+def generate_cover_letter(
+    tailored_resume: ResumeSchema,
+    job_description: str,
+    keywords: List[str],
+) -> Dict[str, str]:
+    """
+    Generate a "why this job" blurb and a full cover letter.
+
+    Returns a dict with:
+      - why_this_job: 2-3 sentence targeted pitch (used inline in the UI)
+      - cover_letter: full 3-4 paragraph letter ready to copy/download
+
+    The prompt embeds humanizer anti-patterns so the output sounds like
+    a real person wrote it, not a language model.
+    """
+    logger.info("  Generating cover letter via LLM…")
+    client, model = _make_client()
+
+    contact = tailored_resume.contact
+    skills_flat = ", ".join(
+        skill
+        for sg in tailored_resume.skills
+        for skill in sg.skills
+    )
+    experience_summary = "\n".join(
+        f"- {e.role} at {e.company} ({e.start_date}–{e.end_date})"
+        for e in tailored_resume.experience
+    )
+    projects_summary = "\n".join(
+        f"- {p.name}: {p.bullets[0] if p.bullets else ''}"
+        for p in tailored_resume.projects
+    )
+    keywords_str = ", ".join(keywords[:20])
+
+    prompt = f"""You are writing a cover letter for {contact.name}.
+
+Candidate background:
+{experience_summary}
+
+Projects:
+{projects_summary}
+
+Key skills: {skills_flat}
+
+Job description (excerpt to match against):
+{job_description[:2000]}
+
+Relevant JD keywords: {keywords_str}
+
+---
+
+YOUR TASK: Write two things.
+
+1. WHY_THIS_JOB — 2-3 sentences max. Why does this specific role/company appeal to this candidate?
+   Be specific to the JD. No generic "I am excited to apply" opener.
+
+2. COVER_LETTER — A full cover letter, 3-4 short paragraphs. First-person. Professional but not stiff.
+   Opening paragraph: hook with something specific about this company/role, not a cliché opener.
+   Middle paragraphs: 1-2 concrete things from the candidate's background that map directly to this role.
+   Closing: what they'd bring, brief ask for the interview. Skip the "thank you for your time" filler.
+
+HARD RULES — violating any of these will make the output unusable:
+- NO em dashes (—). Use commas or periods instead.
+- NO AI vocabulary: do not use "leverage", "utilize", "showcase", "highlight", "align with",
+  "delve", "tapestry", "landscape", "pivotal", "testament", "fostering", "garner", "vibrant",
+  "intricate", "underscore", "cutting-edge", "synergize", "dynamic", "innovative solutions".
+- NO "not only...but also" constructions.
+- NO rule of three: don't list three adjectives or three noun phrases in a row.
+- NO vague attributions like "experts believe" or "industry research shows".
+- NO generic positive conclusions ("exciting opportunity", "I look forward to growing").
+- NO present-participle add-ons: avoid ending sentences with "ensuring...", "highlighting...",
+  "reflecting...", "contributing to...".
+- Write in first person ("I built", "I shipped", not "the candidate built").
+- Use plain copulas: write "is", "are", "has" instead of "serves as", "stands as", "boasts".
+- Vary sentence length. Mix short sentences with longer ones.
+- Be specific: name the company, name the tech, name the outcome. Vague claims get cut.
+- Sound like a person who actually wants this job, not a form letter.
+
+Return your response in this exact JSON format:
+{{
+  "why_this_job": "...",
+  "cover_letter": "..."
+}}
+
+Do not add any commentary outside the JSON."""
+
+    if "claude" in model:
+        import anthropic as _anthropic
+        raw_client = _anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+        resp = raw_client.messages.create(
+            model=model,
+            max_tokens=1500,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        text = resp.content[0].text.strip()
+    else:
+        from openai import OpenAI as _OpenAI
+        raw_client = _OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        resp = raw_client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+            response_format={"type": "json_object"},
+        )
+        text = resp.choices[0].message.content.strip()
+
+    import json as _json
+    parsed = _json.loads(text)
+    why = parsed.get("why_this_job", "").strip()
+    letter = parsed.get("cover_letter", "").strip()
+    logger.info("  Cover letter generated (%d chars).", len(letter))
+    return {"why_this_job": why, "cover_letter": letter}
+
+
 def collect_diagnostics(
     master_data: ResumeSchema,
     keywords: List[str],

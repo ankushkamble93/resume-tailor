@@ -126,7 +126,7 @@ export default function App() {
                 Start over
               </button>
             </div>
-            <ResultsDisplay result={result} />
+            <ResultsDisplay result={result} jobDescription={jobDescription} />
           </section>
         )}
       </main>

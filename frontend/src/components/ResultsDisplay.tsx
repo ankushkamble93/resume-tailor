@@ -1,9 +1,10 @@
 import { useState } from "react";
-import { downloadPdf, ApiError } from "../api/client";
-import type { TailorResponse } from "../types/resume";
+import { downloadPdf, generateCoverLetter, ApiError } from "../api/client";
+import type { TailorResponse, CoverLetterResponse } from "../types/resume";
 
 interface Props {
   result: TailorResponse;
+  jobDescription: string;
 }
 
 // ── Small helpers ─────────────────────────────────────────────────────────────
@@ -72,10 +73,51 @@ function Bullet({ text }: { text: string }) {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export function ResultsDisplay({ result }: Props) {
+export function ResultsDisplay({ result, jobDescription }: Props) {
   const { tailored_resume: r, keywords } = result;
   const [pdfLoading, setPdfLoading] = useState(false);
   const [pdfError, setPdfError] = useState<string | null>(null);
+  const [coverLetter, setCoverLetter] = useState<CoverLetterResponse | null>(null);
+  const [clLoading, setClLoading] = useState(false);
+  const [clError, setClError] = useState<string | null>(null);
+
+  const allKeywords = [
+    ...keywords.technical_skills,
+    ...keywords.infrastructure_keywords,
+    ...keywords.core_competencies,
+  ];
+
+  const handleGenerateCoverLetter = async () => {
+    setClLoading(true);
+    setClError(null);
+    try {
+      const cl = await generateCoverLetter({
+        tailored_resume: r,
+        job_description: jobDescription,
+        keywords: allKeywords,
+      });
+      setCoverLetter(cl);
+      setTimeout(() => {
+        document.getElementById("cover-letter-section")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 100);
+    } catch (err) {
+      setClError(err instanceof ApiError ? err.message : "Cover letter generation failed.");
+    } finally {
+      setClLoading(false);
+    }
+  };
+
+  const handleDownloadCoverLetter = () => {
+    if (!coverLetter) return;
+    const text = `${r.contact.name}\n${r.contact.email} | ${r.contact.phone}\n\n${coverLetter.cover_letter}`;
+    const blob = new Blob([text], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "cover_letter.txt";
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   const handleDownloadJson = () => {
     const blob = new Blob(
@@ -262,6 +304,87 @@ export function ResultsDisplay({ result }: Props) {
           ))}
         </div>
       </SectionCard>
+
+      {/* ── Cover letter ──────────────────────────────────────────────────── */}
+      <div id="cover-letter-section" className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+        <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50 px-5 py-3">
+          <h3 className="text-sm font-semibold uppercase tracking-wider text-slate-500">Cover Letter</h3>
+          <div className="flex gap-2">
+            {coverLetter && (
+              <>
+                <CopyButton text={coverLetter.cover_letter} label="Copy letter" />
+                <button
+                  onClick={handleDownloadCoverLetter}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700"
+                >
+                  <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                  </svg>
+                  Download .txt
+                </button>
+              </>
+            )}
+            {!coverLetter && (
+              <button
+                onClick={handleGenerateCoverLetter}
+                disabled={clLoading}
+                className={[
+                  "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors",
+                  clLoading
+                    ? "cursor-not-allowed bg-slate-200 text-slate-400"
+                    : "bg-indigo-600 text-white hover:bg-indigo-700",
+                ].join(" ")}
+              >
+                {clLoading ? (
+                  <>
+                    <svg className="h-3.5 w-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                    </svg>
+                    Generating…
+                  </>
+                ) : (
+                  <>
+                    <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
+                    </svg>
+                    Generate Cover Letter
+                  </>
+                )}
+              </button>
+            )}
+          </div>
+        </div>
+        <div className="px-5 py-4">
+          {clError && (
+            <p className="text-sm text-red-600">{clError}</p>
+          )}
+          {!coverLetter && !clLoading && !clError && (
+            <p className="text-sm text-slate-400 italic">
+              Click "Generate Cover Letter" to create a humanized cover letter based on this tailored resume and the job description.
+            </p>
+          )}
+          {clLoading && (
+            <p className="text-sm text-slate-500 italic">Writing your cover letter — this takes about 15–30 seconds…</p>
+          )}
+          {coverLetter && (
+            <div className="space-y-5">
+              {/* Why this job */}
+              <div className="rounded-lg border border-indigo-100 bg-indigo-50 px-4 py-3">
+                <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-indigo-500">Why this job</p>
+                <p className="text-sm leading-relaxed text-indigo-900">{coverLetter.why_this_job}</p>
+              </div>
+              {/* Full letter */}
+              <div>
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-400">Full letter</p>
+                <div className="whitespace-pre-wrap rounded-lg border border-slate-100 bg-slate-50 px-4 py-3 text-sm leading-relaxed text-slate-700 font-mono">
+                  {coverLetter.cover_letter}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
 
       {/* ── Detected keywords ─────────────────────────────────────────────── */}
       <SectionCard

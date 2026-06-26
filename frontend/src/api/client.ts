@@ -1,4 +1,4 @@
-import type { ResumeSchema, TailorRequest, TailorResponse } from "../types/resume";
+import type { ResumeSchema, TailorRequest, TailorResponse, CoverLetterRequest, CoverLetterResponse } from "../types/resume";
 
 const BASE_URL = "/api";
 
@@ -105,4 +105,18 @@ export async function downloadPdf(resume: ResumeSchema): Promise<Blob> {
   }
 
   return response.blob();
+}
+
+/**
+ * POST /api/cover-letter
+ *
+ * Generates a "why this job" blurb and a full cover letter from the tailored resume
+ * and original job description. Uses the humanizer prompt to reduce AI slop.
+ * May take 15–30 seconds.
+ */
+export async function generateCoverLetter(req: CoverLetterRequest): Promise<CoverLetterResponse> {
+  return request<CoverLetterResponse>("/cover-letter", {
+    method: "POST",
+    body: JSON.stringify(req),
+  });
 }

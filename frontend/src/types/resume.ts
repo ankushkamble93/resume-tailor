@@ -69,3 +69,14 @@ export interface TailorResponse {
 export interface ApiError {
   detail: string;
 }
+
+export interface CoverLetterRequest {
+  tailored_resume: ResumeSchema;
+  job_description: string;
+  keywords: string[];
+}
+
+export interface CoverLetterResponse {
+  why_this_job: string;
+  cover_letter: string;
+}
