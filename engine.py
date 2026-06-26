@@ -237,7 +237,7 @@ def _proof_pack_prompt_block(proof_pack: Dict[str, List[str]]) -> str:
     return "\n".join(lines)
 
 
-def evaluate_resume_quality(data: ResumeSchema) -> QualityReport:
+def evaluate_resume_quality(data: ResumeSchema, job_role_type: str | None = None) -> QualityReport:
     """
     Deterministic quality gate to reduce generic AI-style output.
     """
@@ -294,6 +294,7 @@ def tailor_resume_data(
     master_data: ResumeSchema,
     keywords: List[str],
     proof_pack: Dict[str, List[str]] | None = None,
+    job_role_type: str | None = None,
 ) -> ResumeSchema:
     """
     Feed master resume data + JD keywords to the LLM and receive a tailored
@@ -394,6 +395,7 @@ def refine_resume_for_quality(
     keywords: List[str],
     proof_pack: Dict[str, List[str]],
     quality: QualityReport,
+    job_role_type: str | None = None,
 ) -> ResumeSchema:
     """
     One targeted refinement pass when deterministic quality checks fail.
