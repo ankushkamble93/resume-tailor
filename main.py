@@ -121,7 +121,8 @@ def run(
     # ── Step 2: Analyse the job description ───────────────────────────────────
     logger.info("Analysing job description from %s…", jd)
     try:
-        keywords = analyze_job_description(str(jd))
+        jd_result = analyze_job_description(str(jd))
+        keywords = jd_result.all_keywords
     except Exception as exc:
         logger.error("JD analysis failed: %s", exc)
         raise typer.Exit(code=1)

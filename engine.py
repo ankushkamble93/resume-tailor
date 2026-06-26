@@ -122,12 +122,12 @@ def _make_client() -> tuple[object, str]:
     )
 
 
-def analyze_job_description(jd_path: str) -> List[str]:
+def analyze_job_description(jd_path: str) -> JDKeywords:
     """
     Read a plain-text job description and extract ATS-optimised keywords.
 
-    Returns a flat, deduplicated list of keywords covering technical skills,
-    infrastructure tooling, and core competencies mentioned in the JD.
+    Returns a structured JDKeywords object so callers can access both the
+    flat keyword list (.all_keywords) and the inferred role type (.job_role_type).
     """
     jd_text = Path(jd_path).read_text(encoding="utf-8").strip()
     if not jd_text:
@@ -166,9 +166,8 @@ def analyze_job_description(jd_path: str) -> List[str]:
         kwargs["model"] = model
         result = client.chat.completions.create(**kwargs)
 
-    keywords = result.all_keywords
-    logger.info("  Extracted %d unique keywords.", len(keywords))
-    return keywords
+    logger.info("  Extracted %d unique keywords.", len(result.all_keywords))
+    return result
 
 
 def _extract_bullet_anchors(bullet: str, keywords: List[str]) -> List[str]:
