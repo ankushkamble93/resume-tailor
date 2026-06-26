@@ -52,6 +52,7 @@ export interface JDKeywords {
   infrastructure_keywords: string[];
   core_competencies: string[];
   job_role_type: "SDET" | "SDE" | "DevOps" | "unknown";
+  company_name: string;
 }
 
 // ── API shapes ────────────────────────────────────────────────────────────────
@@ -68,4 +69,15 @@ export interface TailorResponse {
 
 export interface ApiError {
   detail: string;
+}
+
+export interface CoverLetterRequest {
+  tailored_resume: ResumeSchema;
+  job_description: string;
+  keywords: string[];
+}
+
+export interface CoverLetterResponse {
+  why_this_job: string;
+  cover_letter: string;
 }

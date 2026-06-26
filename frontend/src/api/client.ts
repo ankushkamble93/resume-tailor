@@ -1,4 +1,4 @@
-import type { ResumeSchema, TailorRequest, TailorResponse } from "../types/resume";
+import type { ResumeSchema, TailorRequest, TailorResponse, CoverLetterRequest, CoverLetterResponse } from "../types/resume";
 
 const BASE_URL = "/api";
 
@@ -90,6 +90,53 @@ export async function downloadPdf(resume: ResumeSchema): Promise<Blob> {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(resume),
+    });
+  } catch {
+    throw new ApiError(0, "Network error — could not reach the server.");
+  }
+
+  if (!response.ok) {
+    let detail = `HTTP ${response.status}: ${response.statusText}`;
+    try {
+      const body = await response.json();
+      if (typeof body?.detail === "string") detail = body.detail;
+    } catch { /* ignore */ }
+    throw new ApiError(response.status, detail);
+  }
+
+  return response.blob();
+}
+
+/**
+ * POST /api/cover-letter
+ *
+ * Generates a "why this job" blurb and a full cover letter from the tailored resume
+ * and original job description. Uses the humanizer prompt to reduce AI slop.
+ * May take 15–30 seconds.
+ */
+export async function generateCoverLetter(req: CoverLetterRequest): Promise<CoverLetterResponse> {
+  return request<CoverLetterResponse>("/cover-letter", {
+    method: "POST",
+    body: JSON.stringify(req),
+  });
+}
+
+/**
+ * POST /api/download-cover-letter-pdf
+ *
+ * Sends a tailored resume and plain-text cover letter to the backend, which
+ * parses the letter, populates cover_letter.typ, and returns a PDF blob.
+ */
+export async function downloadCoverLetterPdf(
+  tailored_resume: ResumeSchema,
+  cover_letter: string,
+): Promise<Blob> {
+  let response: Response;
+  try {
+    response = await fetch(`${BASE_URL}/download-cover-letter-pdf`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tailored_resume, cover_letter }),
     });
   } catch {
     throw new ApiError(0, "Network error — could not reach the server.");
