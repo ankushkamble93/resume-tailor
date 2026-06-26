@@ -504,6 +504,8 @@ def generate_why_this_job(
     Deliberately lean: no cover letter, no formatting — just the targeted blurb.
     Called as part of the main tailor pipeline so the result is immediately
     available in the UI without a separate button-triggered LLM call.
+    The prompt enforces the full humanizer ruleset so output sounds like a
+    real person, not a language model.
     """
     logger.info("  Generating why_this_job blurb…")
     client, model = _make_client()
@@ -513,31 +515,64 @@ def generate_why_this_job(
         f"- {e.role} at {e.company} ({e.start_date}–{e.end_date})"
         for e in tailored_resume.experience
     )
+    projects_summary = "\n".join(
+        f"- {p.name}: {p.bullets[0] if p.bullets else ''}"
+        for p in tailored_resume.projects
+    )
     keywords_str = ", ".join(keywords[:15])
 
-    prompt = f"""You are helping {contact.name} articulate why a specific role appeals to them.
+    prompt = f"""You are writing a 2-3 sentence personal blurb for {contact.name} explaining \
+why this specific job appeals to them. Write in first person.
 
 Candidate experience:
 {experience_summary}
 
+Candidate projects:
+{projects_summary}
+
 Job description (excerpt):
 {job_description[:1500]}
 
-Relevant keywords: {keywords_str}
+Relevant JD keywords: {keywords_str}
 
-Write a "WHY THIS JOB" blurb: exactly 2-3 sentences. Why does this specific role/company \
-appeal to this candidate? Be concrete and specific to the JD. No "I am excited to apply" \
-opener. No em dashes. No AI buzzwords (leverage, showcase, align with, pivotal, etc.). \
-Sound like a person, not a form letter.
+─── HARD RULES — violating any of these makes the output unusable ───
 
-Return only the blurb text — no labels, no JSON, no commentary."""
+BANNED WORDS AND PHRASES (do not use any of these):
+- AI vocabulary: leverage, utilize, showcase, highlight, align with, delve, tapestry,
+  landscape (abstract), pivotal, testament, fostering, garner, vibrant, intricate,
+  underscore, cutting-edge, synergize, dynamic, innovative solutions, crucial, key (adj),
+  valuable, enhance, emphasizing, enduring, interplay, additionally, groundbreaking,
+  renowned, breathtaking, seamless
+- Copula substitutes: serves as, stands as, boasts, features (verb), marks a, represents a
+- Filler openers: "I am excited to apply", "I look forward to", "I would love to",
+  "I am passionate about", "thrilled", "honored"
+
+BANNED CONSTRUCTIONS:
+- No em dashes (—). Use commas or periods instead.
+- No "not only...but also..." or "it's not just...it's..." constructions.
+- No rule of three: do not list three adjectives or three noun phrases in a row.
+- No present-participle add-ons: avoid ending sentences with "ensuring...",
+  "highlighting...", "reflecting...", "contributing to...", "showcasing...".
+- No vague attributions: no "experts believe", "industry research shows".
+- No generic upbeat conclusions: no "exciting opportunity", "bright future", "step in the right direction".
+- No boldface, no bullet points, no headers.
+
+STYLE REQUIREMENTS:
+- Vary sentence length. Mix one short punchy sentence with a longer one.
+- Be specific: name the company, name the tech, name something concrete from the JD.
+- Use plain copulas: write "is", "are", "has" instead of "serves as" or "stands as".
+- Sound like a person who genuinely thought about this role, not a form letter.
+- Use "I" naturally. First person is honest, not unprofessional.
+- 2-3 sentences maximum. No more.
+
+Return only the blurb — no labels, no JSON, no commentary."""
 
     if "claude" in model:
         import anthropic as _anthropic
         raw_client = _anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
         resp = raw_client.messages.create(
             model=model,
-            max_tokens=200,
+            max_tokens=250,
             messages=[{"role": "user", "content": prompt}],
         )
         return resp.content[0].text.strip()
@@ -546,7 +581,7 @@ Return only the blurb text — no labels, no JSON, no commentary."""
         raw_client = _OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
         resp = raw_client.chat.completions.create(
             model=model,
-            max_tokens=200,
+            max_tokens=250,
             messages=[{"role": "user", "content": prompt}],
         )
         return resp.choices[0].message.content.strip()
