@@ -33,6 +33,11 @@ GENERIC_PHRASES = [
     "cross-functional teams",
 ]
 
+# Tailored PDF is one page: master JSON may hold more projects than we print.
+MAX_TAILORED_PROJECTS = 2
+MAX_PROJECT_BULLETS = 3
+MAX_EXPERIENCE_BULLETS = 4
+
 INFRA_TEST_TERMS = {
     "automation",
     "framework",
@@ -292,6 +297,36 @@ def evaluate_resume_quality(data: ResumeSchema, job_role_type: str | None = None
     )
 
 
+def _fit_for_one_page(data: ResumeSchema, keywords: List[str]) -> ResumeSchema:
+    """Clip tailored output so Typst stays on one ATS page.
+
+    Master JSON can list extra projects; the printed resume keeps the two
+    that overlap TARGET KEYWORDS most, with a hard bullet cap per entry.
+    """
+    payload = data.model_dump()
+    for exp in payload.get("experience", []):
+        exp["bullets"] = exp.get("bullets", [])[:MAX_EXPERIENCE_BULLETS]
+    projects = payload.get("projects", [])
+    if len(projects) > MAX_TAILORED_PROJECTS:
+        kw = [k.lower() for k in keywords]
+
+        def score(proj: dict) -> int:
+            blob = " ".join(
+                [
+                    proj.get("name") or "",
+                    proj.get("tech") or "",
+                    " ".join(proj.get("bullets") or []),
+                ]
+            ).lower()
+            return sum(1 for k in kw if k in blob)
+
+        projects = sorted(projects, key=score, reverse=True)[:MAX_TAILORED_PROJECTS]
+    for proj in projects:
+        proj["bullets"] = proj.get("bullets", [])[:MAX_PROJECT_BULLETS]
+    payload["projects"] = projects
+    return ResumeSchema.model_validate(payload)
+
+
 def tailor_resume_data(
     master_data: ResumeSchema,
     keywords: List[str],
@@ -339,7 +374,8 @@ def tailor_resume_data(
         "━━━ STEP 1 — BULLET SELECTION ━━━\n"
         "For each experience entry keep the 3–4 bullets that map most naturally to the "
         "target keywords. Drop the rest.\n"
-        "For each project keep the 3 most relevant bullets.\n\n"
+        "Select at most 2 projects — the two that best match TARGET KEYWORDS. Drop the rest. "
+        "For each kept project keep the 3 most relevant bullets.\n\n"
         "━━━ STEP 2 — BULLET REWRITING (mandatory) ━━━\n"
         "Rewrite every kept bullet. The output text must differ from the input text.\n"
         "Rephrase the action verb, reframe the outcome in terms of the target keywords, "
@@ -387,6 +423,7 @@ def tailor_resume_data(
     merged = result.model_dump()
     merged["contact"] = master_data.contact.model_dump()
     result = ResumeSchema.model_validate(merged)
+    result = _fit_for_one_page(result, keywords)
 
     logger.info("  Tailoring complete.")
     return result
@@ -473,7 +510,8 @@ def tailor_resume_data_with_why(
         "━━━ STEP 1 — BULLET SELECTION ━━━\n"
         "For each experience entry keep the 3–4 bullets that map most naturally to the "
         "target keywords. Drop the rest.\n"
-        "For each project keep the 3 most relevant bullets.\n\n"
+        "Select at most 2 projects — the two that best match TARGET KEYWORDS. Drop the rest. "
+        "For each kept project keep the 3 most relevant bullets.\n\n"
         "━━━ STEP 2 — BULLET REWRITING (mandatory) ━━━\n"
         "Rewrite every kept bullet. The output text must differ from the input text.\n"
         "Rephrase the action verb, reframe the outcome in terms of the target keywords, "
@@ -524,6 +562,7 @@ def tailor_resume_data_with_why(
     merged["contact"] = master_data.contact.model_dump()
     merged.pop("why_this_job", None)
     resume = ResumeSchema.model_validate(merged)
+    resume = _fit_for_one_page(resume, keywords)
 
     logger.info("  Tailoring + why_this_job complete (why: %d chars).", len(why))
     return resume, why
@@ -580,6 +619,7 @@ def refine_resume_for_quality(
     merged = result.model_dump()
     merged["contact"] = original_contact
     refined = ResumeSchema.model_validate(merged)
+    refined = _fit_for_one_page(refined, keywords)
     logger.info("  Quality refinement complete.")
     return refined
 
